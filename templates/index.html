@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>LLM Sci-Fi Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            background: #000000;
+            color: #e0ffff;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            min-width: 480px;
+        }
+
+        #model {
+            font-size: 28px;
+            letter-spacing: 2px;
+            margin-bottom: 18px;
+            color: #ffffff;
+        }
+
+        .stage {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px 0;
+            padding: 8px 14px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            font-size: 14px;
+            transition: all 0.25s ease;
+        }
+
+        .stage.active {
+            background: #ffd000;
+            color: #ffffff;
+            font-weight: bold;
+        }
+
+        .stage.done {
+            background: #00a86b;
+            color: #ffffff;
+        }
+
+        .line {
+            width: 100%;
+            height: 2px;
+            background: #1e90ff;
+            margin-top: 6px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .flow::after {
+            content: "";
+            position: absolute;
+            width: 50px;
+            height: 2px;
+            background: #00ffff;
+            animation: move 0.6s linear infinite;
+        }
+
+        @keyframes move {
+            from {
+                left: -50px;
+            }
+
+            to {
+                left: 100%;
+            }
+        }
+
+        .tokens {
+            display: none;
+        }
+
+        #stats {
+            margin-top: 18px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: left;
+            display: none;
+        }
+
+        #stats b {
+            color: #00ffcc;
+        }
+
+        #input-area {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid #1e90ff;
+            border-radius: 6px;
+            color: #fff;
+            padding: 10px;
+            font-family: inherit;
+            resize: none;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        textarea:focus {
+            border-color: #00ffff;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #00a86b;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #008f5b;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="center">
+        <div id="model">QWEN3 : 0.6B</div>
+
+        <div class="stage" id="reqStage"><span>REQUEST</span></div>
+        <div class="line" id="reqLine"></div>
+
+        <div class="stage" id="thinkStage"><span>THINKING</span></div>
+        <div class="line" id="thinkLine"></div>
+
+        <div class="stage" id="outStage"><span>OUTPUT</span></div>
+        <div class="line" id="outLine"></div>
+
+        <div id="stats"></div>
+
+        <div id="input-area">
+            <textarea id="promptInput" placeholder="Enter your prompt here..."></textarea>
+            <button onclick="sendPrompt()">GENERATE</button>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+
+        function activate(stage, line) {
+            document.querySelectorAll('.stage').forEach(s => s.classList.remove('active'));
+            document.getElementById(stage).classList.add('active');
+            document.getElementById(line).classList.add('flow');
+        }
+
+        function done(stage, line) {
+            document.getElementById(stage).classList.remove('active');
+            document.getElementById(stage).classList.add('done');
+            document.getElementById(line).classList.remove('flow');
+        }
+
+        ws.onopen = () => console.log("WebSocket connected");
+        ws.onclose = () => console.log("WebSocket disconnected");
+
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+
+            if (msg.event === 'request') {
+                document.querySelectorAll('.stage').forEach(s => s.classList.remove('active', 'done'));
+                document.querySelectorAll('.line').forEach(l => l.classList.remove('flow'));
+                document.getElementById('stats').style.display = 'none';
+
+                activate('reqStage', 'reqLine');
+            }
+
+            if (msg.event === 'thinking') {
+                done('reqStage', 'reqLine');
+                activate('thinkStage', 'thinkLine');
+            }
+
+            if (msg.event === 'output') {
+                done('thinkStage', 'thinkLine');
+                done('outStage', 'outLine');
+
+                if (msg.final_stats) {
+                    const s = document.getElementById('stats');
+                    s.style.display = 'block';
+                    s.innerHTML = `
+        <b>Inference Stats</b><br>
+        Prompt tokens: ${msg.final_stats.prompt_tokens}<br>
+        Generated tokens: ${msg.final_stats.generated_tokens}<br>
+        Prompt eval time: ${msg.final_stats.prompt_time_ms} ms<br>
+        Generation time: ${msg.final_stats.generation_time_ms} ms<br>
+        Total time: ${msg.final_stats.total_time_ms} ms
+      `;
+                }
+            }
+        };
+
+        async function sendPrompt() {
+            const input = document.getElementById('promptInput');
+            const prompt = input.value.trim();
+            if (!prompt) return;
+
+            // Clear input
+            input.value = '';
+
+            try {
+                const response = await fetch('/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: prompt })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+            } catch (err) {
+                console.error("Failed to send prompt:", err);
+                alert("Error sending prompt: " + err.message);
+            }
+        }
+    </script>
+</body>
+
+</html>
