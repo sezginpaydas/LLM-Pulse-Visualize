@@ -16,6 +16,7 @@
             background: #050508;
             color: #e0e0e0;
             font-family: 'Segoe UI', system-ui, sans-serif;
+            user-select: none;
             overflow: hidden;
             height: 100vh;
         }
@@ -536,24 +537,39 @@
 
         // Pulse traveling along lines
         class Pulse {
-            constructor(startX, startY, endX, endY, color, curveDirection = 1) {
+            constructor(startX, startY, endX, endY, color, curveDirection = 1, curveFactor = 0.35) {
                 this.startX = startX;
                 this.startY = startY;
                 this.endX = endX;
                 this.endY = endY;
                 this.color = color;
+                this.curveDirection = curveDirection;
+                this.curveFactor = curveFactor;
                 this.progress = 0;
                 this.speed = 0.012;
                 this.size = 5;
                 this.alive = true;
 
-                // Control point for bezier curve
-                const midX = (startX + endX) / 2;
-                const midY = (startY + endY) / 2;
-                const perpX = -(endY - startY) * 0.35 * curveDirection;
-                const perpY = (endX - startX) * 0.35 * curveDirection;
+                this.recalcControlPoint();
+            }
+
+            recalcControlPoint() {
+                const midX = (this.startX + this.endX) / 2;
+                const midY = (this.startY + this.endY) / 2;
+                const perpX = -(this.endY - this.startY) * this.curveFactor * this.curveDirection;
+                const perpY = (this.endX - this.startX) * this.curveFactor * this.curveDirection;
                 this.ctrlX = midX + perpX;
                 this.ctrlY = midY + perpY;
+            }
+
+            // Called each frame to update endpoints when nodes are dragged
+            updateEndpoints(sx, sy, ex, ey, curveFactor) {
+                this.startX = sx;
+                this.startY = sy;
+                this.endX = ex;
+                this.endY = ey;
+                this.curveFactor = curveFactor;
+                this.recalcControlPoint();
             }
 
             update() {
@@ -621,7 +637,15 @@
                 this.state = 'idle';
                 this.activeProcessing = 0; // track concurrent requests
 
+                // Drag state
+                this.dragNode = null;
+                this.dragOffsetX = 0;
+                this.dragOffsetY = 0;
+                this.isDragging = false;
+                this.hoveredNode = null;
+
                 this.createNodes();
+                this.setupDragEvents();
             }
 
             createNodes() {
@@ -648,6 +672,7 @@
             }
 
             updateNodePositions() {
+                // Only reposition if nodes haven't been dragged (initial/resize)
                 const baseDistance = Math.min(width, height) * 0.28;
                 const angles = [Math.PI, Math.PI * 1.5, 0];
                 this.appNodes.forEach((node, i) => {
@@ -656,21 +681,131 @@
                 });
             }
 
+            setupDragEvents() {
+                canvas.addEventListener('mousedown', (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const mx = e.clientX - rect.left;
+                    const my = e.clientY - rect.top;
+
+                    for (let i = this.appNodes.length - 1; i >= 0; i--) {
+                        const node = this.appNodes[i];
+                        const dx = mx - node.x;
+                        const dy = my - node.y;
+                        if (Math.sqrt(dx * dx + dy * dy) < node.radius + 8) {
+                            this.dragNode = node;
+                            this.dragOffsetX = dx;
+                            this.dragOffsetY = dy;
+                            this.isDragging = true;
+                            canvas.style.cursor = 'grabbing';
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                });
+
+                canvas.addEventListener('mousemove', (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const mx = e.clientX - rect.left;
+                    const my = e.clientY - rect.top;
+
+                    if (this.isDragging && this.dragNode) {
+                        this.dragNode.x = mx - this.dragOffsetX;
+                        this.dragNode.y = my - this.dragOffsetY;
+                        canvas.style.cursor = 'grabbing';
+                        return;
+                    }
+
+                    // Hover detection for cursor
+                    let hovered = false;
+                    for (const node of this.appNodes) {
+                        const dx = mx - node.x;
+                        const dy = my - node.y;
+                        if (Math.sqrt(dx * dx + dy * dy) < node.radius + 8) {
+                            hovered = true;
+                            break;
+                        }
+                    }
+                    canvas.style.cursor = hovered ? 'grab' : 'default';
+                });
+
+                canvas.addEventListener('mouseup', () => {
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        this.dragNode = null;
+                        canvas.style.cursor = 'default';
+                    }
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    if (this.isDragging) {
+                        this.isDragging = false;
+                        this.dragNode = null;
+                        canvas.style.cursor = 'default';
+                    }
+                });
+            }
+
+            // Get line geometry for a given node (used by both drawing and pulses)
+            getLineGeometry(node) {
+                const dx = centerX - node.x;
+                const dy = centerY - node.y;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const px = -dy / len;
+                const py = dx / len;
+                const OFF = 8;
+
+                // App side: both lines merge at the same point (node center)
+                const appX = node.x;
+                const appY = node.y;
+                // LLM side: separated by offset
+                const llmInputX = centerX + px * OFF;
+                const llmInputY = centerY + py * OFF;
+                const llmOutputX = centerX - px * OFF;
+                const llmOutputY = centerY - py * OFF;
+
+                return { appX, appY, llmInputX, llmInputY, llmOutputX, llmOutputY, px, py, OFF };
+            }
+
+            // Check if a line passes near another node and compute extra curve offset
+            getCollisionOffset(fromX, fromY, toX, toY, excludeNode) {
+                let extraCurve = 0;
+                for (const other of this.appNodes) {
+                    if (other === excludeNode) continue;
+                    // Check distance from other node center to the line segment
+                    const dist = this.pointToSegmentDist(other.x, other.y, fromX, fromY, toX, toY);
+                    const threshold = other.radius + 40;
+                    if (dist < threshold) {
+                        // The closer the node, the more we bend
+                        extraCurve += (threshold - dist) / threshold * 0.35;
+                    }
+                }
+                return extraCurve;
+            }
+
+            // Distance from point (px,py) to line segment (ax,ay)-(bx,by)
+            pointToSegmentDist(px, py, ax, ay, bx, by) {
+                const abx = bx - ax, aby = by - ay;
+                const apx = px - ax, apy = py - ay;
+                const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / (abx * abx + aby * aby + 1e-9)));
+                const projX = ax + t * abx;
+                const projY = ay + t * aby;
+                return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+            }
+
             spawnInputPulse(nodeIndex) {
                 const node = this.appNodes[nodeIndex];
                 if (node) {
-                    const dx = centerX - node.x;
-                    const dy = centerY - node.y;
-                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-                    const px = -dy / len;
-                    const py = dx / len;
-                    const OFF = 8;
-                    // Pulse from app node TO center on the input line
-                    this.pulses.push(new Pulse(
-                        node.x + px * OFF, node.y + py * OFF,
-                        centerX + px * OFF, centerY + py * OFF,
-                        COLORS.inputPulse, 1
-                    ));
+                    const geo = this.getLineGeometry(node);
+                    const extraCurve = this.getCollisionOffset(geo.appX, geo.appY, geo.llmInputX, geo.llmInputY, node);
+                    // Pulse from app node TO LLM on the input line
+                    const pulse = new Pulse(
+                        geo.appX, geo.appY,
+                        geo.llmInputX, geo.llmInputY,
+                        COLORS.inputPulse, 1, 0.35 + extraCurve
+                    );
+                    pulse.sourceNodeIndex = nodeIndex;
+                    pulse.isInput = true;
+                    this.pulses.push(pulse);
                     node.activate();
                     setTimeout(() => node.deactivate(), 1200);
                 }
@@ -679,36 +814,52 @@
             spawnOutputPulse(nodeIndex) {
                 const node = this.appNodes[nodeIndex];
                 if (node) {
-                    const dx = centerX - node.x;
-                    const dy = centerY - node.y;
-                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-                    const px = -dy / len;
-                    const py = dx / len;
-                    const OFF = 8;
-                    // Pulse from center TO the SAME app node on the output line
-                    this.pulses.push(new Pulse(
-                        centerX - px * OFF, centerY - py * OFF,
-                        node.x - px * OFF, node.y - py * OFF,
-                        COLORS.outputPulse, -1
-                    ));
+                    const geo = this.getLineGeometry(node);
+                    const extraCurve = this.getCollisionOffset(geo.llmOutputX, geo.llmOutputY, geo.appX, geo.appY, node);
+                    // Pulse from LLM TO app node on the output line
+                    const pulse = new Pulse(
+                        geo.llmOutputX, geo.llmOutputY,
+                        geo.appX, geo.appY,
+                        COLORS.outputPulse, -1, 0.35 + extraCurve
+                    );
+                    pulse.sourceNodeIndex = nodeIndex;
+                    pulse.isInput = false;
+                    this.pulses.push(pulse);
                     node.activateResponse();
                     setTimeout(() => node.deactivateResponse(), 1500);
                 }
             }
 
             update() {
-                this.updateNodePositions();
+                // Don't force-reposition nodes (they may have been dragged)
                 this.coreNode.update();
                 this.appNodes.forEach(node => node.update());
-                this.pulses.forEach(pulse => pulse.update());
+
+                // Update pulses — recalculate positions for live-following during drag
+                this.pulses.forEach(pulse => {
+                    if (pulse.sourceNodeIndex !== undefined) {
+                        const node = this.appNodes[pulse.sourceNodeIndex];
+                        if (node) {
+                            const geo = this.getLineGeometry(node);
+                            if (pulse.isInput) {
+                                const extra = this.getCollisionOffset(geo.appX, geo.appY, geo.llmInputX, geo.llmInputY, node);
+                                pulse.updateEndpoints(geo.appX, geo.appY, geo.llmInputX, geo.llmInputY, 0.35 + extra);
+                            } else {
+                                const extra = this.getCollisionOffset(geo.llmOutputX, geo.llmOutputY, geo.appX, geo.appY, node);
+                                pulse.updateEndpoints(geo.llmOutputX, geo.llmOutputY, geo.appX, geo.appY, 0.35 + extra);
+                            }
+                        }
+                    }
+                    pulse.update();
+                });
                 this.pulses = this.pulses.filter(p => p.alive);
             }
 
-            drawLine(fromX, fromY, toX, toY, color, curveDir = 1) {
+            drawLine(fromX, fromY, toX, toY, color, curveDir = 1, curveFactor = 0.35) {
                 const midX = (fromX + toX) / 2;
                 const midY = (fromY + toY) / 2;
-                const perpX = -(toY - fromY) * 0.35 * curveDir;
-                const perpY = (toX - fromX) * 0.35 * curveDir;
+                const perpX = -(toY - fromY) * curveFactor * curveDir;
+                const perpY = (toX - fromX) * curveFactor * curveDir;
 
                 ctx.beginPath();
                 ctx.moveTo(fromX, fromY);
@@ -719,34 +870,31 @@
             }
 
             drawLines() {
-                const OFFSET = 8; // perpendicular separation between the two lines
                 this.appNodes.forEach(node => {
-                    // Direction vector from node to core
-                    const dx = centerX - node.x;
-                    const dy = centerY - node.y;
-                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-                    // Perpendicular unit vector
-                    const px = -dy / len;
-                    const py = dx / len;
+                    const geo = this.getLineGeometry(node);
 
-                    // Input line: node → core, offset to one side
+                    // Collision-aware curve factor
+                    const inputExtra = this.getCollisionOffset(geo.appX, geo.appY, geo.llmInputX, geo.llmInputY, node);
+                    const outputExtra = this.getCollisionOffset(geo.llmOutputX, geo.llmOutputY, geo.appX, geo.appY, node);
+
+                    // Input line: app node → LLM (merged at app side, offset at LLM side)
                     const inputColor = node.brightness > 0.3 ?
                         `rgba(34, 211, 238, ${0.15 + node.brightness * 0.35})` :
                         COLORS.lineIdle;
                     this.drawLine(
-                        node.x + px * OFFSET, node.y + py * OFFSET,
-                        centerX + px * OFFSET, centerY + py * OFFSET,
-                        inputColor, 1
+                        geo.appX, geo.appY,
+                        geo.llmInputX, geo.llmInputY,
+                        inputColor, 1, 0.35 + inputExtra
                     );
 
-                    // Output line: core → node, offset to the other side
+                    // Output line: LLM → app node (offset at LLM side, merged at app side)
                     const outputColor = node.responseGlow > 0.3 ?
                         `rgba(244, 114, 182, ${0.15 + node.responseGlow * 0.35})` :
                         `rgba(31, 31, 46, 0.35)`;
                     this.drawLine(
-                        centerX - px * OFFSET, centerY - py * OFFSET,
-                        node.x - px * OFFSET, node.y - py * OFFSET,
-                        outputColor, -1
+                        geo.llmOutputX, geo.llmOutputY,
+                        geo.appX, geo.appY,
+                        outputColor, -1, 0.35 + outputExtra
                     );
                 });
             }
@@ -957,10 +1105,17 @@
             });
         }
 
-        // Handle resize
+        // Handle resize — reposition nodes relative to new center
         window.addEventListener('resize', () => {
+            const oldCX = centerX, oldCY = centerY;
             resize();
-            visualizer.updateNodePositions();
+            // Shift all app nodes by the delta so they stay relative
+            const dx = centerX - oldCX;
+            const dy = centerY - oldCY;
+            visualizer.appNodes.forEach(node => {
+                node.x += dx;
+                node.y += dy;
+            });
         });
     </script>
 </body>
