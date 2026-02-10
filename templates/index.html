@@ -3,232 +3,940 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>LLM Sci-Fi Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM Pulse Visualizer</title>
     <style>
-        body {
+        * {
             margin: 0;
-            background: #000000;
-            color: #e0ffff;
-            font-family: Arial, sans-serif;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #050508;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             overflow: hidden;
+            height: 100vh;
         }
 
-        #center {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            min-width: 480px;
-        }
-
-        #model {
-            font-size: 28px;
-            letter-spacing: 2px;
-            margin-bottom: 18px;
-            color: #ffffff;
-        }
-
-        .stage {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin: 10px 0;
-            padding: 8px 14px;
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.05);
-            font-size: 14px;
-            transition: all 0.25s ease;
-        }
-
-        .stage.active {
-            background: #ffd000;
-            color: #ffffff;
-            font-weight: bold;
-        }
-
-        .stage.done {
-            background: #00a86b;
-            color: #ffffff;
-        }
-
-        .line {
-            width: 100%;
-            height: 2px;
-            background: #1e90ff;
-            margin-top: 6px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .flow::after {
-            content: "";
-            position: absolute;
-            width: 50px;
-            height: 2px;
-            background: #00ffff;
-            animation: move 0.6s linear infinite;
-        }
-
-        @keyframes move {
-            from {
-                left: -50px;
-            }
-
-            to {
-                left: 100%;
-            }
-        }
-
-        .tokens {
-            display: none;
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 0;
         }
 
         #stats {
-            margin-top: 18px;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.35);
-            border-radius: 6px;
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(5, 5, 8, 0.8);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 12px;
+            padding: 15px 20px;
             font-size: 12px;
-            text-align: left;
+            color: rgba(255, 255, 255, 0.7);
+            z-index: 10;
             display: none;
+            backdrop-filter: blur(10px);
         }
 
-        #stats b {
-            color: #00ffcc;
-        }
-
-        #input-area {
-            margin-top: 20px;
+        #stats .stat-row {
             display: flex;
-            flex-direction: column;
-            gap: 10px;
+            justify-content: space-between;
+            gap: 20px;
+            margin: 4px 0;
         }
 
-        textarea {
-            width: 100%;
-            height: 80px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid #1e90ff;
-            border-radius: 6px;
+        #stats .stat-value {
+            color: #22d3ee;
+            font-weight: 500;
+        }
+
+        #model-label {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 11px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(139, 92, 246, 0.6);
+            z-index: 10;
+        }
+
+        #status {
+            position: fixed;
+            top: 55px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.3);
+            z-index: 10;
+            transition: color 0.5s ease;
+        }
+
+        #status.active {
+            color: #22d3ee;
+        }
+
+        #status.error {
+            color: #ef4444;
+        }
+
+        #legend {
+            position: fixed;
+            top: 30px;
+            left: 30px;
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            z-index: 10;
+        }
+
+        #legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+        }
+
+        #legend .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        #legend .legend-dot.input {
+            background: #22d3ee;
+            box-shadow: 0 0 8px #22d3ee;
+        }
+
+        #legend .legend-dot.output {
+            background: #f472b6;
+            box-shadow: 0 0 8px #f472b6;
+        }
+
+        /* Prompt Panels */
+        #prompt-panels {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            display: flex;
+            gap: 16px;
+        }
+
+        .prompt-panel {
+            background: rgba(10, 10, 18, 0.85);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 16px;
+            padding: 14px 16px;
+            width: 260px;
+            backdrop-filter: blur(16px);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .prompt-panel:hover {
+            border-color: rgba(139, 92, 246, 0.45);
+        }
+
+        .prompt-panel.active-sending {
+            border-color: rgba(34, 211, 238, 0.6);
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .panel-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(34, 211, 238, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .panel-indicator.active {
+            background: #22d3ee;
+            box-shadow: 0 0 10px #22d3ee;
+        }
+
+        .panel-title {
+            font-size: 10px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.45);
+        }
+
+        .panel-input-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .prompt-input {
+            flex: 1;
+            padding: 9px 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 20px;
             color: #fff;
-            padding: 10px;
-            font-family: inherit;
-            resize: none;
-            box-sizing: border-box;
+            font-size: 12px;
             outline: none;
+            transition: all 0.3s ease;
         }
 
-        textarea:focus {
-            border-color: #00ffff;
+        .prompt-input:focus {
+            border-color: rgba(139, 92, 246, 0.6);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
         }
 
-        button {
-            padding: 10px 20px;
-            background: #00a86b;
-            color: white;
+        .prompt-input::placeholder {
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        .send-btn {
+            padding: 9px 16px;
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
             border: none;
-            border-radius: 6px;
+            border-radius: 20px;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
             cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: background 0.2s;
+            transition: all 0.3s ease;
+            white-space: nowrap;
         }
 
-        button:hover {
-            background: #008f5b;
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .panel-response {
+            margin-top: 8px;
+            font-size: 10px;
+            color: rgba(244, 114, 182, 0.6);
+            min-height: 14px;
+            letter-spacing: 0.5px;
+            transition: color 0.3s ease;
+        }
+
+        .panel-response.has-data {
+            color: rgba(244, 114, 182, 0.85);
         }
     </style>
 </head>
 
 <body>
+    <canvas id="canvas"></canvas>
 
-    <div id="center">
-        <div id="model">QWEN3 : 0.6B</div>
+    <div id="model-label">QWEN3 : 0.6B</div>
+    <div id="status">idle</div>
 
-        <div class="stage" id="reqStage"><span>REQUEST</span></div>
-        <div class="line" id="reqLine"></div>
-
-        <div class="stage" id="thinkStage"><span>THINKING</span></div>
-        <div class="line" id="thinkLine"></div>
-
-        <div class="stage" id="outStage"><span>OUTPUT</span></div>
-        <div class="line" id="outLine"></div>
-
-        <div id="stats"></div>
-
-        <div id="input-area">
-            <textarea id="promptInput" placeholder="Enter your prompt here..."></textarea>
-            <button onclick="sendPrompt()">GENERATE</button>
+    <div id="legend">
+        <div class="legend-item">
+            <div class="legend-dot input"></div>
+            <span>REQUEST (Input)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-dot output"></div>
+            <span>RESPONSE (Output)</span>
         </div>
     </div>
 
+    <!-- 3 Prompt Panels -->
+    <div id="prompt-panels">
+        <div class="prompt-panel" id="panel-0">
+            <div class="panel-header">
+                <div class="panel-indicator" id="indicator-0"></div>
+                <span class="panel-title">App 1</span>
+            </div>
+            <div class="panel-input-row">
+                <input type="text" class="prompt-input" id="input-0" placeholder="Enter prompt..." />
+                <button class="send-btn" id="btn-0" onclick="sendPrompt(0)">Send</button>
+            </div>
+            <div class="panel-response" id="response-0"></div>
+        </div>
+
+        <div class="prompt-panel" id="panel-1">
+            <div class="panel-header">
+                <div class="panel-indicator" id="indicator-1"></div>
+                <span class="panel-title">App 2</span>
+            </div>
+            <div class="panel-input-row">
+                <input type="text" class="prompt-input" id="input-1" placeholder="Enter prompt..." />
+                <button class="send-btn" id="btn-1" onclick="sendPrompt(1)">Send</button>
+            </div>
+            <div class="panel-response" id="response-1"></div>
+        </div>
+
+        <div class="prompt-panel" id="panel-2">
+            <div class="panel-header">
+                <div class="panel-indicator" id="indicator-2"></div>
+                <span class="panel-title">App 3</span>
+            </div>
+            <div class="panel-input-row">
+                <input type="text" class="prompt-input" id="input-2" placeholder="Enter prompt..." />
+                <button class="send-btn" id="btn-2" onclick="sendPrompt(2)">Send</button>
+            </div>
+            <div class="panel-response" id="response-2"></div>
+        </div>
+    </div>
+
+    <div id="stats">
+        <div class="stat-row"><span>Prompt tokens</span><span class="stat-value" id="stat-prompt">-</span></div>
+        <div class="stat-row"><span>Generated</span><span class="stat-value" id="stat-gen">-</span></div>
+        <div class="stat-row"><span>Total time</span><span class="stat-value" id="stat-time">-</span></div>
+    </div>
+
     <script>
+        // Canvas Setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, centerX, centerY;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // Colors
+        const COLORS = {
+            bgDark: '#050508',
+            coreIdle: '#2d1b4e',
+            coreActive: '#8b5cf6',
+            nodeIdle: '#0d3d4d',
+            nodeActive: '#22d3ee',
+            inputPulse: '#22d3ee',
+            outputPulse: '#f472b6',
+            lineIdle: '#1f1f2e',
+            lineActive: '#3f3f5e',
+            error: '#ef4444'
+        };
+
+        // Easing
+        function easeInOutCubic(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        // Base Node class
+        class Node {
+            constructor(x, y, radius, idleColor, activeColor) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.idleColor = idleColor;
+                this.activeColor = activeColor;
+                this.brightness = 0;
+                this.targetBrightness = 0;
+                this.isError = false;
+                this.label = '';
+                this.responseGlow = 0;
+                this.targetResponseGlow = 0;
+            }
+
+            update() {
+                this.brightness += (this.targetBrightness - this.brightness) * 0.08;
+                this.responseGlow += (this.targetResponseGlow - this.responseGlow) * 0.08;
+                if (this.isError) {
+                    this.isError = false;
+                    this.targetBrightness = 0;
+                }
+            }
+
+            draw() {
+                const color = this.isError ? COLORS.error :
+                    this.lerpColor(this.idleColor, this.activeColor, this.brightness);
+
+                // Input glow (cyan)
+                if (this.brightness > 0.1) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 20 * this.brightness, 0, Math.PI * 2);
+                    const gradient = ctx.createRadialGradient(
+                        this.x, this.y, this.radius,
+                        this.x, this.y, this.radius + 20 * this.brightness
+                    );
+                    gradient.addColorStop(0, this.hexToRgba(this.activeColor, 0.4 * this.brightness));
+                    gradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                }
+
+                // Response glow (pink) - shows when response arrives
+                if (this.responseGlow > 0.1) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 25 * this.responseGlow, 0, Math.PI * 2);
+                    const rGradient = ctx.createRadialGradient(
+                        this.x, this.y, this.radius,
+                        this.x, this.y, this.radius + 25 * this.responseGlow
+                    );
+                    rGradient.addColorStop(0, this.hexToRgba('#f472b6', 0.5 * this.responseGlow));
+                    rGradient.addColorStop(1, 'transparent');
+                    ctx.fillStyle = rGradient;
+                    ctx.fill();
+                }
+
+                // Node
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                // Mix cyan + pink if both active
+                if (this.responseGlow > 0.2 && this.brightness < 0.2) {
+                    ctx.fillStyle = this.lerpColor('#4d1d3d', '#f472b6', this.responseGlow);
+                } else {
+                    ctx.fillStyle = color;
+                }
+                ctx.fill();
+
+                // Label
+                if (this.label) {
+                    ctx.font = '9px system-ui';
+                    ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + Math.max(this.brightness, this.responseGlow) * 0.4})`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(this.label, this.x, this.y + this.radius + 15);
+                }
+            }
+
+            lerpColor(a, b, t) {
+                const ah = parseInt(a.slice(1), 16);
+                const bh = parseInt(b.slice(1), 16);
+                const ar = ah >> 16, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+                const br = bh >> 16, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+                const rr = ar + (br - ar) * t;
+                const rg = ag + (bg - ag) * t;
+                const rb = ab + (bb - ab) * t;
+                return `rgb(${Math.round(rr)}, ${Math.round(rg)}, ${Math.round(rb)})`;
+            }
+
+            hexToRgba(hex, alpha) {
+                const h = parseInt(hex.slice(1), 16);
+                return `rgba(${h >> 16}, ${(h >> 8) & 0xff}, ${h & 0xff}, ${alpha})`;
+            }
+
+            activate() { this.targetBrightness = 1; }
+            deactivate() { this.targetBrightness = 0; }
+            activateResponse() { this.targetResponseGlow = 1; }
+            deactivateResponse() { this.targetResponseGlow = 0; }
+            setError() { this.isError = true; this.brightness = 1; }
+        }
+
+        // Core Node (LLM)
+        class CoreNode {
+            constructor() {
+                this.x = centerX;
+                this.y = centerY;
+                this.radius = 60;
+                this.brightness = 0.3;
+                this.targetBrightness = 0.3;
+                this.pulsePhase = 0;
+                this.isProcessing = false;
+                this.isError = false;
+            }
+
+            update() {
+                this.x = centerX;
+                this.y = centerY;
+                this.brightness += (this.targetBrightness - this.brightness) * 0.05;
+                if (this.isProcessing) {
+                    this.pulsePhase += 0.03;
+                }
+            }
+
+            draw() {
+                const pulseScale = this.isProcessing ? 1 + Math.sin(this.pulsePhase) * 0.08 : 1;
+                const currentRadius = this.radius * pulseScale;
+
+                const baseColor = this.isError ? COLORS.error :
+                    (this.brightness > 0.5 ? COLORS.coreActive : COLORS.coreIdle);
+
+                // Outer glow
+                const glowRadius = currentRadius + 50 * this.brightness;
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, currentRadius * 0.5,
+                    this.x, this.y, glowRadius
+                );
+                gradient.addColorStop(0, this.hexToRgba(COLORS.coreActive, 0.4 * this.brightness));
+                gradient.addColorStop(0.5, this.hexToRgba(COLORS.coreActive, 0.1 * this.brightness));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, glowRadius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Core
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+                const coreGradient = ctx.createRadialGradient(
+                    this.x - currentRadius * 0.3, this.y - currentRadius * 0.3, 0,
+                    this.x, this.y, currentRadius
+                );
+                coreGradient.addColorStop(0, this.lerpColor(baseColor, '#ffffff', 0.3));
+                coreGradient.addColorStop(1, baseColor);
+                ctx.fillStyle = coreGradient;
+                ctx.fill();
+
+                // LLM label
+                ctx.font = 'bold 10px system-ui';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.textAlign = 'center';
+                ctx.fillText('LLM', this.x, this.y + 4);
+            }
+
+            lerpColor(a, b, t) {
+                const ah = parseInt(a.slice(1), 16);
+                const bh = parseInt(b.slice(1), 16);
+                const ar = ah >> 16, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+                const br = bh >> 16, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+                const rr = ar + (br - ar) * t;
+                const rg = ag + (bg - ag) * t;
+                const rb = ab + (bb - ab) * t;
+                return `rgb(${Math.round(rr)}, ${Math.round(rg)}, ${Math.round(rb)})`;
+            }
+
+            hexToRgba(hex, alpha) {
+                const h = parseInt(hex.slice(1), 16);
+                return `rgba(${h >> 16}, ${(h >> 8) & 0xff}, ${h & 0xff}, ${alpha})`;
+            }
+
+            activate() {
+                this.targetBrightness = 1;
+                this.isProcessing = true;
+                this.isError = false;
+            }
+
+            idle() {
+                this.targetBrightness = 0.3;
+                this.isProcessing = false;
+            }
+
+            setError() {
+                this.isError = true;
+                setTimeout(() => { this.isError = false; }, 1500);
+            }
+        }
+
+        // Pulse traveling along lines
+        class Pulse {
+            constructor(startX, startY, endX, endY, color, curveDirection = 1) {
+                this.startX = startX;
+                this.startY = startY;
+                this.endX = endX;
+                this.endY = endY;
+                this.color = color;
+                this.progress = 0;
+                this.speed = 0.012;
+                this.size = 5;
+                this.alive = true;
+
+                // Control point for bezier curve
+                const midX = (startX + endX) / 2;
+                const midY = (startY + endY) / 2;
+                const perpX = -(endY - startY) * 0.35 * curveDirection;
+                const perpY = (endX - startX) * 0.35 * curveDirection;
+                this.ctrlX = midX + perpX;
+                this.ctrlY = midY + perpY;
+            }
+
+            update() {
+                this.progress += this.speed;
+                if (this.progress >= 1) {
+                    this.alive = false;
+                }
+            }
+
+            draw() {
+                const t = this.progress;
+                const eased = easeInOutCubic(t);
+
+                // Quadratic bezier position
+                const x = Math.pow(1 - eased, 2) * this.startX + 2 * (1 - eased) * eased * this.ctrlX + Math.pow(eased, 2) * this.endX;
+                const y = Math.pow(1 - eased, 2) * this.startY + 2 * (1 - eased) * eased * this.ctrlY + Math.pow(eased, 2) * this.endY;
+
+                // Trail
+                const trailLength = 10;
+                for (let i = 0; i < trailLength; i++) {
+                    const tt = Math.max(0, t - i * 0.015);
+                    const te = easeInOutCubic(tt);
+                    const tx = Math.pow(1 - te, 2) * this.startX + 2 * (1 - te) * te * this.ctrlX + Math.pow(te, 2) * this.endX;
+                    const ty = Math.pow(1 - te, 2) * this.startY + 2 * (1 - te) * te * this.ctrlY + Math.pow(te, 2) * this.endY;
+
+                    const alpha = (1 - i / trailLength) * 0.4;
+                    const size = this.size * (1 - i / trailLength * 0.5);
+
+                    ctx.beginPath();
+                    ctx.arc(tx, ty, size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.hexToRgba(this.color, alpha);
+                    ctx.fill();
+                }
+
+                // Main pulse glow
+                const gradient = ctx.createRadialGradient(x, y, 0, x, y, this.size * 3);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                gradient.addColorStop(0.3, this.hexToRgba(this.color, 0.7));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(x, y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Core of pulse
+                ctx.beginPath();
+                ctx.arc(x, y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+            }
+
+            hexToRgba(hex, alpha) {
+                const h = parseInt(hex.slice(1), 16);
+                return `rgba(${h >> 16}, ${(h >> 8) & 0xff}, ${h & 0xff}, ${alpha})`;
+            }
+        }
+
+        // Main Visualizer
+        class NetworkVisualizer {
+            constructor() {
+                this.coreNode = new CoreNode();
+                this.appNodes = [];  // 3 bidirectional app nodes
+                this.pulses = [];
+                this.state = 'idle';
+                this.activeProcessing = 0; // track concurrent requests
+
+                this.createNodes();
+            }
+
+            createNodes() {
+                const baseDistance = Math.min(width, height) * 0.28;
+                const labels = ['App 1', 'App 2', 'App 3'];
+
+                // 3 nodes distributed around the core (left, top, right)
+                const angles = [
+                    Math.PI,          // left (180°)
+                    Math.PI * 1.5,    // top (270°)
+                    0                 // right (0°)
+                ];
+
+                for (let i = 0; i < 3; i++) {
+                    const angle = angles[i];
+                    const x = centerX + Math.cos(angle) * baseDistance;
+                    const y = centerY + Math.sin(angle) * baseDistance;
+                    const node = new Node(x, y, 20, COLORS.nodeIdle, COLORS.nodeActive);
+                    node.label = labels[i];
+                    node.angle = angle;
+                    node.distance = baseDistance;
+                    this.appNodes.push(node);
+                }
+            }
+
+            updateNodePositions() {
+                const baseDistance = Math.min(width, height) * 0.28;
+                const angles = [Math.PI, Math.PI * 1.5, 0];
+                this.appNodes.forEach((node, i) => {
+                    node.x = centerX + Math.cos(angles[i]) * baseDistance;
+                    node.y = centerY + Math.sin(angles[i]) * baseDistance;
+                });
+            }
+
+            spawnInputPulse(nodeIndex) {
+                const node = this.appNodes[nodeIndex];
+                if (node) {
+                    const dx = centerX - node.x;
+                    const dy = centerY - node.y;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const px = -dy / len;
+                    const py = dx / len;
+                    const OFF = 8;
+                    // Pulse from app node TO center on the input line
+                    this.pulses.push(new Pulse(
+                        node.x + px * OFF, node.y + py * OFF,
+                        centerX + px * OFF, centerY + py * OFF,
+                        COLORS.inputPulse, 1
+                    ));
+                    node.activate();
+                    setTimeout(() => node.deactivate(), 1200);
+                }
+            }
+
+            spawnOutputPulse(nodeIndex) {
+                const node = this.appNodes[nodeIndex];
+                if (node) {
+                    const dx = centerX - node.x;
+                    const dy = centerY - node.y;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const px = -dy / len;
+                    const py = dx / len;
+                    const OFF = 8;
+                    // Pulse from center TO the SAME app node on the output line
+                    this.pulses.push(new Pulse(
+                        centerX - px * OFF, centerY - py * OFF,
+                        node.x - px * OFF, node.y - py * OFF,
+                        COLORS.outputPulse, -1
+                    ));
+                    node.activateResponse();
+                    setTimeout(() => node.deactivateResponse(), 1500);
+                }
+            }
+
+            update() {
+                this.updateNodePositions();
+                this.coreNode.update();
+                this.appNodes.forEach(node => node.update());
+                this.pulses.forEach(pulse => pulse.update());
+                this.pulses = this.pulses.filter(p => p.alive);
+            }
+
+            drawLine(fromX, fromY, toX, toY, color, curveDir = 1) {
+                const midX = (fromX + toX) / 2;
+                const midY = (fromY + toY) / 2;
+                const perpX = -(toY - fromY) * 0.35 * curveDir;
+                const perpY = (toX - fromX) * 0.35 * curveDir;
+
+                ctx.beginPath();
+                ctx.moveTo(fromX, fromY);
+                ctx.quadraticCurveTo(midX + perpX, midY + perpY, toX, toY);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+
+            drawLines() {
+                const OFFSET = 8; // perpendicular separation between the two lines
+                this.appNodes.forEach(node => {
+                    // Direction vector from node to core
+                    const dx = centerX - node.x;
+                    const dy = centerY - node.y;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    // Perpendicular unit vector
+                    const px = -dy / len;
+                    const py = dx / len;
+
+                    // Input line: node → core, offset to one side
+                    const inputColor = node.brightness > 0.3 ?
+                        `rgba(34, 211, 238, ${0.15 + node.brightness * 0.35})` :
+                        COLORS.lineIdle;
+                    this.drawLine(
+                        node.x + px * OFFSET, node.y + py * OFFSET,
+                        centerX + px * OFFSET, centerY + py * OFFSET,
+                        inputColor, 1
+                    );
+
+                    // Output line: core → node, offset to the other side
+                    const outputColor = node.responseGlow > 0.3 ?
+                        `rgba(244, 114, 182, ${0.15 + node.responseGlow * 0.35})` :
+                        `rgba(31, 31, 46, 0.35)`;
+                    this.drawLine(
+                        centerX - px * OFFSET, centerY - py * OFFSET,
+                        node.x - px * OFFSET, node.y - py * OFFSET,
+                        outputColor, -1
+                    );
+                });
+            }
+
+            draw() {
+                // Background
+                ctx.fillStyle = COLORS.bgDark;
+                ctx.fillRect(0, 0, width, height);
+
+                // Lines
+                this.drawLines();
+
+                // App nodes
+                this.appNodes.forEach(node => node.draw());
+
+                // Pulses
+                this.pulses.forEach(pulse => pulse.draw());
+
+                // Core node (on top)
+                this.coreNode.draw();
+            }
+
+            // State handlers
+            onRequest(source = 0) {
+                this.state = 'request';
+                this.activeProcessing++;
+                updateStatus('processing', false);
+
+                // Input pulse from the source app node
+                this.spawnInputPulse(source);
+
+                // Activate panel indicator
+                const indicator = document.getElementById(`indicator-${source}`);
+                if (indicator) indicator.classList.add('active');
+
+                const panel = document.getElementById(`panel-${source}`);
+                if (panel) panel.classList.add('active-sending');
+
+                // Activate core after pulse arrives
+                setTimeout(() => {
+                    this.coreNode.activate();
+                }, 800);
+            }
+
+            onThinking() {
+                this.state = 'thinking';
+            }
+
+            onThinkingTick() {
+                // Subtle core pulse during thinking
+            }
+
+            onOutput(source = 0, finalStats = null) {
+                this.state = 'output';
+                this.activeProcessing = Math.max(0, this.activeProcessing - 1);
+
+                // Response pulse back to the SAME source node
+                setTimeout(() => {
+                    this.spawnOutputPulse(source);
+                }, 200);
+
+                // Update panel response info
+                if (finalStats) {
+                    const respEl = document.getElementById(`response-${source}`);
+                    if (respEl) {
+                        respEl.textContent = `✓ ${finalStats.generated_tokens || '?'} tokens · ${finalStats.total_time_ms || '?'} ms`;
+                        respEl.classList.add('has-data');
+                    }
+                }
+
+                // Deactivate panel indicator
+                setTimeout(() => {
+                    const indicator = document.getElementById(`indicator-${source}`);
+                    if (indicator) indicator.classList.remove('active');
+
+                    const panel = document.getElementById(`panel-${source}`);
+                    if (panel) panel.classList.remove('active-sending');
+                }, 1200);
+
+                // Return to idle (only if no other active processing)
+                setTimeout(() => {
+                    if (this.activeProcessing <= 0) {
+                        this.coreNode.idle();
+                        this.state = 'idle';
+                        updateStatus('idle', false);
+                    }
+                }, 1500);
+            }
+
+            onError(source = 0) {
+                this.state = 'error';
+                this.activeProcessing = Math.max(0, this.activeProcessing - 1);
+                this.coreNode.setError();
+                this.appNodes[source]?.setError();
+                updateStatus('error', true);
+
+                const panel = document.getElementById(`panel-${source}`);
+                if (panel) panel.classList.remove('active-sending');
+
+                const indicator = document.getElementById(`indicator-${source}`);
+                if (indicator) indicator.classList.remove('active');
+
+                setTimeout(() => {
+                    if (this.activeProcessing <= 0) {
+                        this.state = 'idle';
+                        this.coreNode.idle();
+                        updateStatus('idle', false);
+                    }
+                }, 2000);
+            }
+        }
+
+        // Initialize
+        const visualizer = new NetworkVisualizer();
+
+        // Animation loop
+        function animate() {
+            visualizer.update();
+            visualizer.draw();
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // Status update
+        function updateStatus(text, isError) {
+            const el = document.getElementById('status');
+            el.textContent = text;
+            el.classList.remove('active', 'error');
+            if (text !== 'idle') el.classList.add('active');
+            if (isError) el.classList.add('error');
+        }
+
+        // WebSocket
         const ws = new WebSocket("ws://127.0.0.1:8000/ws");
-
-        function activate(stage, line) {
-            document.querySelectorAll('.stage').forEach(s => s.classList.remove('active'));
-            document.getElementById(stage).classList.add('active');
-            document.getElementById(line).classList.add('flow');
-        }
-
-        function done(stage, line) {
-            document.getElementById(stage).classList.remove('active');
-            document.getElementById(stage).classList.add('done');
-            document.getElementById(line).classList.remove('flow');
-        }
-
         ws.onopen = () => console.log("WebSocket connected");
         ws.onclose = () => console.log("WebSocket disconnected");
 
         ws.onmessage = (e) => {
             const msg = JSON.parse(e.data);
+            const source = msg.source ?? 0;
 
             if (msg.event === 'request') {
-                document.querySelectorAll('.stage').forEach(s => s.classList.remove('active', 'done'));
-                document.querySelectorAll('.line').forEach(l => l.classList.remove('flow'));
-                document.getElementById('stats').style.display = 'none';
-
-                activate('reqStage', 'reqLine');
+                visualizer.onRequest(source);
             }
 
             if (msg.event === 'thinking') {
-                done('reqStage', 'reqLine');
-                activate('thinkStage', 'thinkLine');
+                visualizer.onThinking();
+            }
+
+            if (msg.event === 'thinking_tick') {
+                visualizer.onThinkingTick();
             }
 
             if (msg.event === 'output') {
-                done('thinkStage', 'thinkLine');
-                done('outStage', 'outLine');
+                visualizer.onOutput(source, msg.final_stats || null);
 
                 if (msg.final_stats) {
-                    const s = document.getElementById('stats');
-                    s.style.display = 'block';
-                    s.innerHTML = `
-        <b>Inference Stats</b><br>
-        Prompt tokens: ${msg.final_stats.prompt_tokens}<br>
-        Generated tokens: ${msg.final_stats.generated_tokens}<br>
-        Prompt eval time: ${msg.final_stats.prompt_time_ms} ms<br>
-        Generation time: ${msg.final_stats.generation_time_ms} ms<br>
-        Total time: ${msg.final_stats.total_time_ms} ms
-      `;
+                    const stats = document.getElementById('stats');
+                    stats.style.display = 'block';
+                    document.getElementById('stat-prompt').textContent = msg.final_stats.prompt_tokens || '-';
+                    document.getElementById('stat-gen').textContent = msg.final_stats.generated_tokens || '-';
+                    document.getElementById('stat-time').textContent = (msg.final_stats.total_time_ms || 0) + ' ms';
                 }
+            }
+
+            if (msg.event === 'error') {
+                visualizer.onError(source);
             }
         };
 
-        async function sendPrompt() {
-            const input = document.getElementById('promptInput');
+        // Send prompt from a specific panel
+        async function sendPrompt(source) {
+            const input = document.getElementById(`input-${source}`);
+            const btn = document.getElementById(`btn-${source}`);
+            const respEl = document.getElementById(`response-${source}`);
             const prompt = input.value.trim();
             if (!prompt) return;
 
-            // Clear input
             input.value = '';
+            btn.disabled = true;
+            if (respEl) {
+                respEl.textContent = '';
+                respEl.classList.remove('has-data');
+            }
 
             try {
                 const response = await fetch('/prompt', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: prompt })
+                    body: JSON.stringify({ prompt: prompt, source: source })
                 });
 
                 if (!response.ok) {
@@ -236,9 +944,24 @@
                 }
             } catch (err) {
                 console.error("Failed to send prompt:", err);
-                alert("Error sending prompt: " + err.message);
+                visualizer.onError(source);
+            } finally {
+                btn.disabled = false;
             }
         }
+
+        // Enter key to send from each panel
+        for (let i = 0; i < 3; i++) {
+            document.getElementById(`input-${i}`).addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendPrompt(i);
+            });
+        }
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            resize();
+            visualizer.updateNodePositions();
+        });
     </script>
 </body>
 

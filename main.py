@@ -43,9 +43,10 @@ async def broadcast(payload):
 async def prompt(req: Request):
     data = await req.json()
     prompt_text = data.get("prompt", "")
-    print(f"DEBUG: Received prompt: {prompt_text}")
+    source = data.get("source", 0)
+    print(f"DEBUG: Received prompt from source {source}: {prompt_text}")
 
-    await broadcast({"event": "request"})
+    await broadcast({"event": "request", "source": source})
 
     prompt_tokens = len(prompt_text.split())
     gen_tokens = 0
@@ -63,6 +64,7 @@ async def prompt(req: Request):
 
             await broadcast({
                 "event": "thinking",
+                "source": source,
                 "req_tokens": prompt_tokens
             })
 
@@ -91,6 +93,7 @@ async def prompt(req: Request):
 
             await broadcast({
                 "event": "output",
+                "source": source,
                 "final_stats": final_stats
             })
 
